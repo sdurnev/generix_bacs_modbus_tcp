@@ -16,7 +16,7 @@ import (
 !!!!!!!!!!!! VERSION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 */
-const version = "0.01.1"
+const version = "0.01.2"
 
 /*
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -99,7 +99,7 @@ func main() {
 		"1058_<RESERVED>",
 		"1059_<RESERVED>",
 	}
-*/
+	*/
 	paramNameModuls := [...]string{
 		"1060_MODULE_001_TEMP",
 		"1061_MODULE_001_VOLT",
@@ -1933,15 +1933,15 @@ func main() {
 				fmt.Printf("\"%s\":", paramNameModuls[numDesk+(i/2)+3])
 				if binary.BigEndian.Uint16(results[i+6:i+8]) == 0 {
 					fmt.Print("\"BACS_ALARM_NONE\",")
-				}else {
-					a := AlarmDecode2(results[i+6:i+8])
+				} else {
+					a := AlarmDecode2(results[i+6 : i+8])
 					for i := 0; i < len(a); i++ {
 						if i < (len(a) - 1) {
 							fmt.Printf("\"%s", a[i])
 							fmt.Printf("\",")
 						} else {
 							fmt.Printf("\"%s", a[i])
-							fmt.Printf("\"],")
+							fmt.Printf("\",")
 						}
 					}
 				}
@@ -2032,3 +2032,7 @@ func Float32frombytes(bytes []byte) float32 {
 	float := math.Float32frombits(bits)
 	return float
 }
+
+/* build for rapberry
+env GOOS=linux GOARCH=arm GOARM=5 go build
+*/
