@@ -16,7 +16,7 @@ import (
 !!!!!!!!!!!! VERSION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 */
-const version = "0.01.2"
+const version = "0.01.3"
 
 /*
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1937,11 +1937,12 @@ func main() {
 					a := AlarmDecode2(results[i+6 : i+8])
 					for i := 0; i < len(a); i++ {
 						if i < (len(a) - 1) {
+							fmt.Printf("[")
 							fmt.Printf("\"%s", a[i])
 							fmt.Printf("\",")
 						} else {
 							fmt.Printf("\"%s", a[i])
-							fmt.Printf("\",")
+							fmt.Printf("\"],")
 						}
 					}
 				}
@@ -2035,4 +2036,6 @@ func Float32frombytes(bytes []byte) float32 {
 
 /* build for rapberry
 env GOOS=linux GOARCH=arm GOARM=5 go build
+GOOS=windows GOARCH=386 go build -o http_example.exe
+GOOS=windows GOARCH=amd64 go build -o http_example64.exe
 */
