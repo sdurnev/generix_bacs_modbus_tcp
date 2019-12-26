@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="generix_bacs_modbus_tcp_x64" type="GoApplicationRunConfiguration" factoryName="Go Application">
+  <configuration default="false" name="generix_bacs_modbus_tcp_linux" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="generix_bacs_modbus_tcp" />
     <working_directory value="$PROJECT_DIR$/" />
     <parameters value="-ip=10.10.12.22 -id=1 -m=3 -q=1" />
@@ -10,8 +10,7 @@
     <kind value="FILE" />
     <filePath value="$PROJECT_DIR$/main.go" />
     <directory value="$PROJECT_DIR$/" />
-    <output_directory value="$PROJECT_DIR$/bin/0.01.4/linux" />
-    <option name="run" value="false" />
+    <output_directory value="$PROJECT_DIR$/bin/0.01.5/linux" />
     <method v="2" />
   </configuration>
 </component>
