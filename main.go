@@ -16,7 +16,7 @@ import (
 !!!!!!!!!!!! VERSION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 */
-const version = "0.01.5"
+const version = "0.01.6"
 
 /*
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1878,11 +1878,6 @@ func main() {
 		}
 		i += 2
 	}
-	//fmt.Println(startReg)
-	//fmt.Println(regQuan)
-	//fmt.Println(results)
-	//fmt.Println(len(data))
-	//fmt.Println(data)
 
 	switch mode {
 	case 1:
@@ -1935,14 +1930,30 @@ func main() {
 					fmt.Print("\"BACS_ALARM_NONE\",")
 				} else {
 					a := AlarmDecode2(results[i+6 : i+8])
+					/*fmt.Print("\n")
+					fmt.Print(a)
+					fmt.Print("\n")
+					fmt.Print(len(a))
+					fmt.Print("\n")
+					fmt.Print(len(a)-2)
+					fmt.Print("\n")*/
 					for i := 0; i < len(a); i++ {
-						if i < (len(a) - 1) {
+						if len(a) == 1 {
 							fmt.Printf("[")
 							fmt.Printf("\"%s", a[i])
-							fmt.Printf("\",")
-						} else {
-							fmt.Printf("\"%s", a[i])
 							fmt.Printf("\"],")
+						} else {
+							if i == 0 /*< (len(a) - 1)*/ {
+								fmt.Printf("[")
+								fmt.Printf("\"%s", a[i])
+								fmt.Printf("\",")
+							} else if i >= 1 && i <= (len(a)-2) {
+								fmt.Printf("\"%s", a[i])
+								fmt.Printf("\",")
+							} else {
+								fmt.Printf("\"%s", a[i])
+								fmt.Printf("\"],")
+							}
 						}
 					}
 				}
@@ -2025,6 +2036,16 @@ func AlarmDecode2(b []byte) []string {
 			mesage = append(mesage, listOfAllarm1[i+1])
 		}
 	}
+
+	//debug fun
+	/*mesage = []string{
+	"BACS_ALARM_MODULE-SEARCHING0",
+	"BACS_ALARM_MODULE-SEARCHING1",
+	"BACS_ALARM_MODULE-SEARCHING2",
+	"BACS_ALARM_MODULE-SEARCHING3",
+	"BACS_ALARM_MODULE-SEARCHING4",}*/
+	//debug fun
+
 	return mesage
 }
 
