@@ -13,7 +13,7 @@ import (
 !!!!!!!!!!!! VERSION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 */
-const version = "0.01.7"
+const version = "0.01.8"
 
 /*
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -82,6 +82,7 @@ func main() {
 		MainUnits.bacssens = tmpSens
 	} else { // модули с 1060 по 1159 еслих менее 20
 		t3 := readModbus(serverParam, s, uint16(1060), 5*systemStatus.nummodules)
+		//fmt.Println(t3)
 		MainUnits.bacssens = parceSensors(t3)
 	}
 	printAnsver(MainUnits)
@@ -121,9 +122,9 @@ func parceBacsStrings(data []byte) []bacsString {
 	for i := 0; i < len(data); i += 10 {
 		var s bacsString
 		s.current = float64(int16(binary.BigEndian.Uint16(data[i : i+2])))
-		s.summvolt = float64(int16(binary.BigEndian.Uint16(data[i+2:i+4])) / 10)
-		s.avgvolt = float64(int16(binary.BigEndian.Uint16(data[i+4:i+6])) / 1000)
-		s.currac = float64(int16(binary.BigEndian.Uint16(data[i+8:i+10])) / 100)
+		s.summvolt = float64(int16(binary.BigEndian.Uint16(data[i+2:i+4]))) / 10
+		s.avgvolt = float64(int16(binary.BigEndian.Uint16(data[i+4:i+6]))) / 1000
+		s.currac = float64(int16(binary.BigEndian.Uint16(data[i+8:i+10]))) / 100
 		s.reserv = float64(int16(binary.BigEndian.Uint16(data[i+10 : i+12])))
 		ansver = append(ansver, s)
 	}
@@ -138,11 +139,11 @@ func parceSensors(data []byte) []sensor {
 		//fmt.Println(i)
 		if binary.BigEndian.Uint16(data[i:i+2]) != 55537 {
 			var s sensor
-			s.temp = float64((int16(binary.BigEndian.Uint16(data[i:i+2])) - 78) / 2)
-			s.volt = float64(int16(binary.BigEndian.Uint16(data[i+2:i+4])) / 1000)
-			s.impc = float64(int16(binary.BigEndian.Uint16(data[i+4:i+6])) / 100)
+			s.temp = (float64(int16(binary.BigEndian.Uint16(data[i:i+2]))) - 78) / 2
+			s.volt = (float64(int16(binary.BigEndian.Uint16(data[i+2 : i+4])))) / 1000
+			s.impc = (float64(int16(binary.BigEndian.Uint16(data[i+4 : i+6])))) / 100
 			s.alarm = SensorAlarmDecode(data[i+6 : i+8])
-			s.eq = float64(int16(binary.BigEndian.Uint16(data[i+8:i+10])) / 100)
+			s.eq = (float64(int16(binary.BigEndian.Uint16(data[i+8 : i+10])))) / 100
 			ansver = append(ansver, s)
 		}
 	}
