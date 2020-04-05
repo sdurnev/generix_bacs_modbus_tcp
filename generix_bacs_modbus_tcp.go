@@ -5,101 +5,313 @@ import (
 	"flag"
 	"fmt"
 	"github.com/goburrow/modbus"
-	"math"
 	"time"
 )
 
-//type a map.s.int32
+/*
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!! VERSION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+*/
+const version = "0.01.7"
 
 /*
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!! VERSION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 */
-const version = "0.01.6"
 
-/*
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!! VERSION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-*/
-
-/**
-Пример вызапуска программы generix_bacs_modbus_tcp -ip=192.168.10.1 -id=1 -port=502 -m=1 -q=1
-	mode:
-		-m=1 - считывает общее состояние - ALLARM FLAGS (параметр -q  не используеться);
-		-m=2 - считывает токовые стринги, параметр -q  принимает значения от 1 до 10 - номер стринга;
-		-m=3 - считывает состояние батарей, параматр -q определяет номер батареи и принимает значения от 1 до 17, 1 - с 1 по 20, 2 - с 21 по 40, и тд
-*/
+type mainunit struct {
+	gen      general
+	bacstr   []bacsString
+	bacssens []sensor
+}
+type general struct {
+	alarm1000  []string
+	alarm1001  []string
+	alarm1002  []string
+	numstrings uint16
+	nummodules uint16
+}
+type bacsString struct {
+	current  float64
+	summvolt float64
+	avgvolt  float64
+	currac   float64
+	reserv   float64
+}
+type sensor struct {
+	temp  float64
+	volt  float64
+	impc  float64
+	alarm []string
+	eq    float64
+}
 
 func main() {
+	addressIP := flag.String("ip", "localhost", "a string")
+	tcpPort := flag.String("port", "502", "a string")
+	slaveID := flag.Int("id", 1, "an int")
+	flag.Parse()
+	serverParam := fmt.Sprint(*addressIP, ":", *tcpPort)
+	s := byte(*slaveID)
 
-	paramNameBACSALM := [...]string{
-		"1000_<RESERVED>",
-		"1001_<RESERVED>",
+	var MainUnits mainunit
+
+	t1 := readModbus(serverParam, s, uint16(1000), uint16(5)) // главный раздел с 1000 по 1004
+	var systemStatus = parceGeneral(t1)
+	MainUnits.gen = systemStatus
+
+	t2 := readModbus(serverParam, s, uint16(1010), 5*systemStatus.numstrings) // стринги с 1010 по 1059
+	var systemStrings = parceBacsStrings(t2)
+	MainUnits.bacstr = systemStrings
+
+	if MainUnits.gen.nummodules > 20 { // модули с 1060 по 1159 и далее если их более 20
+		a := MainUnits.gen.nummodules / 20
+		b := MainUnits.gen.nummodules % 20
+		var tmpSens []sensor
+		for n := uint16(0); n <= a; n++ {
+			if n != a { // читаем основные модули модули по 20 шт за раз
+				t3 := readModbus(serverParam, s, 1060+(100*n), uint16(100))
+				tmpSens = append(tmpSens, parceSensors(t3)...)
+			} else { // читаем оствшиеся модули модули остаток менее 20
+				t3 := readModbus(serverParam, s, 1060+(100*n), 5*b)
+				tmpSens = append(tmpSens, parceSensors(t3)...)
+			}
+		}
+		MainUnits.bacssens = tmpSens
+	} else { // модули с 1060 по 1159 еслих менее 20
+		t3 := readModbus(serverParam, s, uint16(1060), 5*systemStatus.nummodules)
+		MainUnits.bacssens = parceSensors(t3)
+	}
+	printAnsver(MainUnits)
+}
+func readModbus(serverParam string, saveID byte, startReg uint16, regQuan uint16) []byte {
+	handler := modbus.NewTCPClientHandler(serverParam)
+	handler.SlaveId = saveID
+	handler.Timeout = 2 * time.Second
+	//handler.Logger = log.New(os.Stdout, "test: ", log.LstdFlags)
+	// Connect manually so that multiple requests are handled in one session
+	err := handler.Connect()
+	defer handler.Close()
+	client := modbus.NewClient(handler)
+	result, err := client.ReadInputRegisters(startReg, regQuan)
+	if err != nil {
+		fmt.Printf("{\"status\":\"error\", \"error\":\"%s\"}", err)
+	}
+	return result
+}
+func parceGeneral(data []byte) general {
+	var ansver general
+	//fmt.Println(len(data))
+	//fmt.Println(data)
+	if len(data) == 10 {
+		ansver.alarm1000 = Genera1000lAlarmDecode(data[0:2])
+		ansver.alarm1001 = Genera1001lAlarmDecode(data[2:4])
+		ansver.alarm1002 = SensorAlarmDecode(data[4:6])
+		ansver.numstrings = binary.BigEndian.Uint16(data[6:8])
+		ansver.nummodules = binary.BigEndian.Uint16(data[8:10])
+	}
+	return ansver
+}
+func parceBacsStrings(data []byte) []bacsString {
+	var ansver []bacsString
+	//fmt.Println(len(data))
+	//fmt.Println(data)
+	for i := 0; i < len(data); i += 10 {
+		var s bacsString
+		s.current = float64(int16(binary.BigEndian.Uint16(data[i : i+2])))
+		s.summvolt = float64(int16(binary.BigEndian.Uint16(data[i+2:i+4])) / 10)
+		s.avgvolt = float64(int16(binary.BigEndian.Uint16(data[i+4:i+6])) / 1000)
+		s.currac = float64(int16(binary.BigEndian.Uint16(data[i+8:i+10])) / 100)
+		s.reserv = float64(int16(binary.BigEndian.Uint16(data[i+10 : i+12])))
+		ansver = append(ansver, s)
+	}
+
+	return ansver
+}
+func parceSensors(data []byte) []sensor {
+	var ansver []sensor
+	//fmt.Println(len(data))
+	//fmt.Println(data)
+	for i := 0; i < len(data); i += 10 {
+		//fmt.Println(i)
+		if binary.BigEndian.Uint16(data[i:i+2]) != 55537 {
+			var s sensor
+			s.temp = float64((int16(binary.BigEndian.Uint16(data[i:i+2])) - 78) / 2)
+			s.volt = float64(int16(binary.BigEndian.Uint16(data[i+2:i+4])) / 1000)
+			s.impc = float64(int16(binary.BigEndian.Uint16(data[i+4:i+6])) / 100)
+			s.alarm = SensorAlarmDecode(data[i+6 : i+8])
+			s.eq = float64(int16(binary.BigEndian.Uint16(data[i+8:i+10])) / 100)
+			ansver = append(ansver, s)
+		}
+	}
+	//fmt.Println(ansver)
+	return ansver
+}
+func SensorAlarmDecode(b []byte) []string {
+	listOfAllarm1 := [...]string{
+		"ВACS_ALARM_NONE",
+		"ВACS_ALARM_GENERAL_ALARМ",
+		"ВАСS_ALARM_COMMUNICATION_LOST",
+		"CS_ALARM_VOLTAGE_HIGH",
+		"ВАСS_ALARM_VOLTAGE_LOW",
+		"ВACS_ALARM_ТEMPERATURE_HIGH",
+		"ВACS_ALARM_TEMPERATURE_LOW",
+		"ВACS_ALARM_RESISTOR_HIGH",
+		"ВACS_ALARM_RESISTOR_LOW",
+		"ВАСS_ALARM_EQUALISATION_ERR",
+		"ВACS_ALARM_VOLTAGE_WARN_HIGH",
+		"ВАСS_ALARM_VOLTAGE_WARN_LOW",
+		"ВACS_ALARM_TEMPERATURE_WARN_HIGH",
+		"ВАСS_ALARM_TEMPERATURE_WARN_LOW",
+		"ВACS_ALARM_RESISТOR_WARN_HIGH",
+		"ВАСS_ALARM_RESISTOR_WARN_LOW",
+		"ВACS_ALARM_MODREV_INCOMPATIBLE",
+	}
+	var mesage []string
+	a := binary.BigEndian.Uint16(b)
+	if a == 0 {
+		mesage = append(mesage, listOfAllarm1[0])
+	} else {
+		for i := uint(0); i < 16; i++ {
+			if a&(1<<i) != 0 {
+				mesage = append(mesage, listOfAllarm1[i+1])
+			}
+		}
+	}
+	return mesage
+}
+func Genera1000lAlarmDecode(b []byte) []string {
+	listOfAllarm1 := [...]string{
+		"BACS_ALARM_NONE",
+		"BACS_ALARM_RUNNING",
+		"BACS_ALARM_CONNECTED",
+		"BACS_ALARM_MODULE_LOST",
+		"BACS_ALARM_DISCHARGING",
+		"BACS_ALARM_CHARGING",
+		"BACS_ALARM_DISCHARGING_STOPPED",
+		"BACS_ALARM_FLOAT_CHARGING",
+		"BACS_ALARM_EQUALIZING",
+		"BACS_ALARM_SYSTEM_FAILURE",
+		"BACS_ALARM_VOLTAGE_OUTOFRANGE",
+		"BACS_ALARM_TEMPERATURE_OUTOFRANGE",
+		"BACS_ALARM_RESISTOR-OUTOFRANGE",
+		"BACS_ALARM_MODULE-ADDRESSING",
+		"BACS_ALARM_MODULE-SEARCHING",
+		"BACS_ALARM_MODULE-INITIALIZING",
+		"BACS_ALARM_MODULE-POLLING",
+	}
+	var mesage []string
+	a := binary.BigEndian.Uint16(b)
+	if a == 0 {
+		mesage = append(mesage, listOfAllarm1[0])
+	} else {
+		for i := uint(0); i < 16; i++ {
+			if a&(1<<i) != 0 {
+				mesage = append(mesage, listOfAllarm1[i])
+			}
+		}
+	}
+	return mesage
+}
+func Genera1001lAlarmDecode(b []byte) []string {
+	listOfAllarm1 := [...]string{
+		"BACS_STATE_NONE",
+		"BACS_STATE_GENERAL_ALARM",
+		"BACS_STATE_VOLTAGE_DIFF_HIGH",
+		"BACS_STATE_BATTERY_BREAKER_OPEN",
+		"BACS_STATE_THERMAL_RUNAWAY",
+	}
+	var mesage []string
+	a := binary.BigEndian.Uint16(b)
+	if a == 0 {
+		mesage = append(mesage, listOfAllarm1[0])
+	} else {
+		for i := uint(0); i < 16; i++ {
+			if a&(1<<i) != 0 {
+				mesage = append(mesage, listOfAllarm1[i])
+			}
+		}
+	}
+	return mesage
+}
+func printAlarmArray(data []string) {
+	fmt.Printf("[")
+	for l := 0; l < len(data); l++ {
+		if l == len(data)-1 {
+			fmt.Printf("\"%s\"", data[l])
+			fmt.Printf("],")
+		} else {
+			fmt.Printf("\"%s\",", data[l])
+		}
+	}
+}
+func printAnsver(data mainunit) {
+	paramNameMain := [...]string{
+		"1000_BACS_ALARM",
+		"1001_BACS_ALARM",
 		"1002_BACS_ALARM",
-		"1003_<RESERVED>",
-		"1004_<RESERVED>",
+		"1003_BACS_NUMSTRINGS",
+		"1004_BACS_NUMMODULES",
 		"1005_<RESERVED>",
 		"1006_<RESERVED>",
 		"1007_<RESERVED>",
 		"1008_<RESERVED>",
 		"1009_<RESERVED>",
 	}
-
-	/*paramNameStrings := [...]string{
+	paramNameStrings := [...]string{
 		"1010_STRING_01_CUR",
-		"1011_<RESERVED>",
-		"1012_<RESERVED>",
-		"1013_<RESERVED>",
+		"1011_ВACS_StrSummVolt",
+		"1012_ВACS_StrAvgVolt",
+		"1013_ВACS_StrCurrAC",
 		"1014_<RESERVED>",
 		"1015_STRING_02_CUR",
-		"1016_<RESERVED>",
-		"1017_<RESERVED>",
-		"1018_<RESERVED>",
+		"1016_ВACS_StrSummVolt",
+		"1017_ВACS_StrAvgVolt",
+		"1018_ВACS_StrCurrAC",
 		"1019_<RESERVED>",
 		"1020_STRING_03_CUR",
-		"1021_<RESERVED>",
-		"1022_<RESERVED>",
-		"1023_<RESERVED>",
+		"1021_ВACS_StrSummVolt",
+		"1022_ВACS_StrAvgVolt",
+		"1023_ВACS_StrCurrAC",
 		"1024_<RESERVED>",
 		"1025_STRING_04_CUR",
-		"1026_<RESERVED>",
-		"1027_<RESERVED>",
-		"1028_<RESERVED>",
+		"1026_ВACS_StrSummVolt",
+		"1027_ВACS_StrAvgVolt",
+		"1028_ВACS_StrCurrAC",
 		"1029_<RESERVED>",
 		"1030_STRING_05_CUR",
-		"1031_<RESERVED>",
-		"1032_<RESERVED>",
-		"1033_<RESERVED>",
+		"1031_ВACS_StrSummVolt",
+		"1032_ВACS_StrAvgVolt",
+		"1033_ВACS_StrCurrAC",
 		"1034_<RESERVED>",
 		"1035_STRING_06_CUR",
-		"1036_<RESERVED>",
-		"1037_<RESERVED>",
-		"1038_<RESERVED>",
+		"1036_ВACS_StrSummVolt",
+		"1037_ВACS_StrAvgVolt",
+		"1038_ВACS_StrCurrAC",
 		"1039_<RESERVED>",
 		"1040_STRING_07_CUR",
-		"1041_<RESERVED>",
-		"1042_<RESERVED>",
-		"1043_<RESERVED>",
+		"1041_ВACS_StrSummVolt",
+		"1042_ВACS_StrAvgVolt",
+		"1043_ВACS_StrCurrAC",
 		"1044_<RESERVED>",
 		"1045_STRING_08_CUR",
-		"1046_<RESERVED>",
-		"1047_<RESERVED>",
-		"1048_<RESERVED>",
+		"1046_ВACS_StrSummVolt",
+		"1047_ВACS_StrAvgVolt",
+		"1048_ВACS_StrCurrAC",
 		"1049_<RESERVED>",
 		"1050_STRING_09_CUR",
-		"1051_<RESERVED>",
-		"1052_<RESERVED>",
-		"1053_<RESERVED>",
+		"1051_ВACS_StrSummVolt",
+		"1052_ВACS_StrAvgVolt",
+		"1053_ВACS_StrCurrAC",
 		"1054_<RESERVED>",
 		"1055_STRING_10_CUR",
-		"1056_<RESERVED>",
-		"1057_<RESERVED>",
-		"1058_<RESERVED>",
+		"1056_ВACS_StrSummVolt",
+		"1057_ВACS_StrAvgVolt",
+		"1058_ВACS_StrCurrAC",
 		"1059_<RESERVED>",
 	}
-	*/
 	paramNameModuls := [...]string{
 		"1060_MODULE_001_TEMP",
 		"1061_MODULE_001_VOLT",
@@ -1753,310 +1965,40 @@ func main() {
 		"2709_MODULE_330_EQ",
 	}
 
-	var data []uint16
-
-	addressIP := flag.String("ip", "localhost", "a string")
-	tcpPort := flag.String("port", "502", "a string")
-	slaveID := flag.Int("id", 1, "an int")
-	modeRead := flag.Int("m", 1, "an int")
-	regQuantity := flag.Uint("q", 1, "an uint")
-	flag.Parse()
-	serverParam := fmt.Sprint(*addressIP, ":", *tcpPort)
-	s := byte(*slaveID)
-	mode := int8(*modeRead)
-	quan1 := uint16(*regQuantity)
-	var startReg uint16
-	var regQuan uint16
-
-	switch mode {
-	case 1:
-		startReg = 1000
-		regQuan = 10
-	case 2:
-		startReg = 1010
-		switch quan1 {
-		case 1:
-			regQuan = 5
-		case 2:
-			regQuan = 10
-		case 3:
-			regQuan = 15
-		case 4:
-			regQuan = 20
-		case 5:
-			regQuan = 25
-		case 6:
-			regQuan = 30
-		case 7:
-			regQuan = 35
-		case 8:
-			regQuan = 40
-		case 9:
-			regQuan = 45
-		case 10:
-			regQuan = 50
-		}
-	case 3:
-		switch quan1 {
-		case 1:
-			startReg = 1060
-			regQuan = 100
-		case 2:
-			startReg = 1160
-			regQuan = 100
-		case 3:
-			startReg = 1260
-			regQuan = 100
-		case 4:
-			startReg = 1360
-			regQuan = 100
-		case 5:
-			startReg = 1460
-			regQuan = 100
-		case 6:
-			startReg = 1560
-			regQuan = 100
-		case 7:
-			startReg = 1660
-			regQuan = 100
-		case 8:
-			startReg = 1760
-			regQuan = 100
-		case 9:
-			startReg = 1860
-			regQuan = 100
-		case 10:
-			startReg = 1960
-			regQuan = 100
-		case 11:
-			startReg = 2060
-			regQuan = 100
-		case 12:
-			startReg = 2160
-			regQuan = 100
-		case 13:
-			startReg = 2260
-			regQuan = 100
-		case 14:
-			startReg = 2360
-			regQuan = 100
-		case 15:
-			startReg = 2460
-			regQuan = 100
-		case 16:
-			startReg = 2560
-			regQuan = 100
-		case 17:
-			startReg = 2660
-			regQuan = 50
-		}
+	fmt.Printf("{")
+	fmt.Printf("\"%s\":", paramNameMain[0])
+	printAlarmArray(data.gen.alarm1000)
+	fmt.Printf("\"%s\":", paramNameMain[1])
+	printAlarmArray(data.gen.alarm1001)
+	fmt.Printf("\"%s\":", paramNameMain[2])
+	printAlarmArray(data.gen.alarm1002)
+	fmt.Printf("\"%s\":", paramNameMain[3])
+	fmt.Printf("%d,", data.gen.numstrings)
+	fmt.Printf("\"%s\":", paramNameMain[4])
+	fmt.Printf("%d,", data.gen.nummodules)
+	for l := 0; l < len(data.bacstr); l++ {
+		fmt.Printf("\"%s\":", paramNameStrings[l*5])
+		fmt.Printf("%.2f,", data.bacstr[l].current)
+		fmt.Printf("\"%s\":", paramNameStrings[l*5+1])
+		fmt.Printf("%.2f,", data.bacstr[l].summvolt)
+		fmt.Printf("\"%s\":", paramNameStrings[l*5+2])
+		fmt.Printf("%.2f,", data.bacstr[l].avgvolt)
+		fmt.Printf("\"%s\":", paramNameStrings[l*5+3])
+		fmt.Printf("%.2f,", data.bacstr[l].currac)
+		//fmt.Printf("\"%s\":", paramNameStrings[l*5+4])
+		//fmt.Printf("%.2f,", data.bacstr[l].reserv)
 	}
-
-	handler := modbus.NewTCPClientHandler(serverParam)
-	handler.SlaveId = s
-	handler.Timeout = 2 * time.Second
-	//handler.Logger = log.New(os.Stdout, "test: ", log.LstdFlags)
-	// Connect manually so that multiple requests are handled in one session
-	err := handler.Connect()
-	defer handler.Close()
-	client := modbus.NewClient(handler)
-	results, err := client.ReadInputRegisters(startReg, regQuan)
-	if err != nil {
-		fmt.Printf("{\"status\":\"error\", \"error\":\"%s\"}", err)
+	for l := 0; l < len(data.bacssens); l++ {
+		fmt.Printf("\"%s\":", paramNameModuls[l*5])
+		fmt.Printf("%.2f,", data.bacssens[l].temp)
+		fmt.Printf("\"%s\":", paramNameModuls[l*5+1])
+		fmt.Printf("%.2f,", data.bacssens[l].volt)
+		fmt.Printf("\"%s\":", paramNameModuls[l*5+2])
+		fmt.Printf("%.2f,", data.bacssens[l].impc)
+		fmt.Printf("\"%s\":", paramNameModuls[l*5+3])
+		printAlarmArray(data.bacssens[l].alarm)
+		fmt.Printf("\"%s\":", paramNameModuls[l*5+4])
+		fmt.Printf("%.2f,", data.bacssens[l].eq)
 	}
-
-	//fmt.Println(len(results))
-	//fmt.Println(results)
-	i := 0
-	for i < len(results) {
-		//a := Float32frombytes(results[i : i+2])
-		a := binary.BigEndian.Uint16(results[i : i+2])
-		if math.IsNaN(float64(a)) {
-			data = append(data, 0)
-		} else {
-			data = append(data, a)
-		}
-		i += 2
-	}
-
-	switch mode {
-	case 1:
-		fmt.Printf("{\"%s\":", paramNameBACSALM[2])
-		fmt.Print("[")
-		a := AlarmDecode1(results[0:2])
-		for i := 0; i < len(a); i++ {
-			if i < (len(a) - 1) {
-				fmt.Printf("\"%s", a[i])
-				fmt.Printf("\",")
-			} else {
-				fmt.Printf("\"%s", a[i])
-				fmt.Printf("\"]")
-			}
-		}
-		if len(results) != 0 {
-			fmt.Printf(",\"version\":\"%s\"}", version)
-		}
-	case 2:
-		//fmt.Println("Mode2")
-		//fmt.Println(results)
-		//fmt.Printf("{\"%s\":", paramNameStrings[0])
-		fmt.Print("{\"not_implemented\":\"in_this_version\"")
-		fmt.Printf(",\"version\":\"%s\"}", version)
-	case 3:
-		//fmt.Println("Mode3")
-		//fmt.Println(results)
-		//fmt.Println(len(results))
-		numDesk := startReg - 1060 - (50 * (quan1 - 1))
-		fmt.Printf("{")
-		for i := uint16(0); i < uint16(len(results)/2); i += 10 {
-			//fmt.Println(i)
-			//fmt.Printf("%d \n", results[i:i+2])
-			//fmt.Printf("%d \n", binary.BigEndian.Uint16(results[i:i+2]))
-			if binary.BigEndian.Uint16(results[i:i+2]) != 55537 { //Декодирование темпиратуры
-				fmt.Printf("\"%s\":", paramNameModuls[numDesk+(i/2)])
-				fmt.Printf("%.2f,", float64(binary.BigEndian.Uint16(results[i:i+2])-78)/2)
-			}
-			if binary.BigEndian.Uint16(results[i+2:i+4]) != 55537 { //Декодирование Напряжения
-				fmt.Printf("\"%s\":", paramNameModuls[numDesk+(i/2)+1])
-				fmt.Printf("%.2f,", float64(binary.BigEndian.Uint16(results[i+2:i+4]))/1000)
-			}
-			if binary.BigEndian.Uint16(results[i+4:i+6]) != 55537 { //Декодирование импеданса
-				fmt.Printf("\"%s\":", paramNameModuls[numDesk+(i/2)+2])
-				fmt.Printf("%.2f,", float64(binary.BigEndian.Uint16(results[i+4:i+6]))/100)
-			}
-			if binary.BigEndian.Uint16(results[i+6:i+8]) != 55537 { //Декодирование алармов
-				fmt.Printf("\"%s\":", paramNameModuls[numDesk+(i/2)+3])
-				if binary.BigEndian.Uint16(results[i+6:i+8]) == 0 {
-					fmt.Print("\"BACS_ALARM_NONE\",")
-				} else {
-					a := AlarmDecode2(results[i+6 : i+8])
-					/*fmt.Print("\n")
-					fmt.Print(a)
-					fmt.Print("\n")
-					fmt.Print(len(a))
-					fmt.Print("\n")
-					fmt.Print(len(a)-2)
-					fmt.Print("\n")*/
-					for i := 0; i < len(a); i++ {
-						if len(a) == 1 {
-							fmt.Printf("[")
-							fmt.Printf("\"%s", a[i])
-							fmt.Printf("\"],")
-						} else {
-							if i == 0 /*< (len(a) - 1)*/ {
-								fmt.Printf("[")
-								fmt.Printf("\"%s", a[i])
-								fmt.Printf("\",")
-							} else if i >= 1 && i <= (len(a)-2) {
-								fmt.Printf("\"%s", a[i])
-								fmt.Printf("\",")
-							} else {
-								fmt.Printf("\"%s", a[i])
-								fmt.Printf("\"],")
-							}
-						}
-					}
-				}
-			}
-			if binary.BigEndian.Uint16(results[i+8:i+10]) != 55537 { //Декодирование эквалайзинга
-				fmt.Printf("\"%s\":", paramNameModuls[numDesk+(i/2)+4])
-				fmt.Printf("%.2f,", float64(binary.BigEndian.Uint16(results[i+8:i+10]))/100)
-			}
-		}
-		if len(results) != 0 {
-			fmt.Printf("\"version\":\"%s\"}", version)
-		}
-	}
+	fmt.Printf("\"version\":\"%s\"}\n", version)
 }
-
-func AlarmDecode1(b []byte) []string {
-	listOfAllarm1 := [...]string{
-		"BACS_ALARM_NONE",
-		"BACS_ALARM_RUNNING",
-		"BACS_ALARM_CONNECTED",
-		"BACS_ALARM_MODULE_LOST",
-		"BACS_ALARM_DISCHARGING",
-		"BACS_ALARM_CHARGING",
-		"BACS_ALARM_DISCHARGING_STOPPED",
-		"BACS_ALARM_FLOAT_CHARGING",
-		"BACS_ALARM_EQUALIZING",
-		"BACS_ALARM_SYSTEM_FAILURE",
-		"BACS_ALARM_VOLTAGE_OUTOFRANGE",
-		"BACS_ALARM_TEMPERATURE_OUTOFRANGE",
-		"BACS_ALARM_RESISTOR-OUTOFRANGE",
-		"BACS_ALARM_MODULE-ADDRESSING",
-		"BACS_ALARM_MODULE-SEARCHING",
-		"BACS_ALARM_MODULE-INITIALIZING",
-		"BACS_ALARM_MODULE-POLLING",
-	}
-	var mesage []string
-	a := binary.BigEndian.Uint16(b)
-	/*
-		fmt.Println(b)
-		fmt.Printf("%016b\n", a)
-	*/
-	for i := uint(0); i < 16; i++ {
-		if a&(1<<i) != 0 {
-			//fmt.Println(i)
-			mesage = append(mesage, listOfAllarm1[i+1])
-		}
-	}
-	return mesage
-}
-
-func AlarmDecode2(b []byte) []string {
-	listOfAllarm1 := [...]string{
-		"BACS_ALARM_NONE",
-		"BACS_ALARM_RUNNING",
-		"BACS_ALARM_CONNECTED",
-		"BACS_ALARM_MODULE_LOST",
-		"BACS_ALARM_DISCHARGING",
-		"BACS_ALARM_CHARGING",
-		"BACS_ALARM_DISCHARGING_STOPPED",
-		"BACS_ALARM_FLOAT_CHARGING",
-		"BACS_ALARM_EQUALIZING",
-		"BACS_ALARM_SYSTEM_FAILURE",
-		"BACS_ALARM_VOLTAGE_OUTOFRANGE",
-		"BACS_ALARM_TEMPERATURE_OUTOFRANGE",
-		"BACS_ALARM_RESISTOR-OUTOFRANGE",
-		"BACS_ALARM_MODULE-ADDRESSING",
-		"BACS_ALARM_MODULE-SEARCHING",
-		"BACS_ALARM_MODULE-INITIALIZING",
-		"BACS_ALARM_MODULE-POLLING",
-	}
-	var mesage []string
-	a := binary.BigEndian.Uint16(b)
-	/*
-		fmt.Println(b)
-		fmt.Printf("%016b\n", a)
-	*/
-	for i := uint(0); i < 16; i++ {
-		if a&(1<<i) != 0 {
-			//fmt.Println(i)
-			mesage = append(mesage, listOfAllarm1[i+1])
-		}
-	}
-
-	//debug fun
-	/*mesage = []string{
-	"BACS_ALARM_MODULE-SEARCHING0",
-	"BACS_ALARM_MODULE-SEARCHING1",
-	"BACS_ALARM_MODULE-SEARCHING2",
-	"BACS_ALARM_MODULE-SEARCHING3",
-	"BACS_ALARM_MODULE-SEARCHING4",}*/
-	//debug fun
-
-	return mesage
-}
-
-func Float32frombytes(bytes []byte) float32 {
-	bits := binary.BigEndian.Uint32(bytes)
-	float := math.Float32frombits(bits)
-	return float
-}
-
-/* build for rapberry
-env GOOS=linux GOARCH=arm GOARM=5 go build
-GOOS=windows GOARCH=386 go build -o http_example.exe
-GOOS=windows GOARCH=amd64 go build -o http_example64.exe
-*/

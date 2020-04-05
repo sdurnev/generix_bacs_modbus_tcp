@@ -9,9 +9,9 @@
       <env name="GOARM" value="5" />
     </envs>
     <kind value="FILE" />
-    <filePath value="$PROJECT_DIR$/main.go" />
+    <filePath value="$PROJECT_DIR$/generix_bacs_modbus_tcp.go" />
     <directory value="$PROJECT_DIR$/" />
-    <output_directory value="$PROJECT_DIR$/bin/0.01.6/rpi" />
+    <output_directory value="$PROJECT_DIR$/bin/0.01.7/rpi" />
     <option name="run" value="false" />
     <method v="2" />
   </configuration>

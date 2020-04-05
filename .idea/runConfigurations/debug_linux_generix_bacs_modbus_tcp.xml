@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="debug_linux_generix_bacs_modbus_tcp" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="generix_bacs_modbus_tcp" />
+    <working_directory value="$PROJECT_DIR$/" />
+    <parameters value="-ip=127.0.0.1 -port=1111 -id=1" />
+    <kind value="FILE" />
+    <filePath value="$PROJECT_DIR$/generix_bacs_modbus_tcp.go" />
+    <directory value="$PROJECT_DIR$/" />
+    <output_directory value="$PROJECT_DIR$/../.tmp" />
+    <method v="2" />
+  </configuration>
+</component>
