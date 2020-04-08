@@ -13,7 +13,7 @@ import (
 !!!!!!!!!!!! VERSION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 */
-const version = "0.01.8"
+const version = "0.01.9"
 
 /*
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -63,7 +63,9 @@ func main() {
 	MainUnits.gen = systemStatus
 
 	t2 := readModbus(serverParam, s, uint16(1010), 5*systemStatus.numstrings) // стринги с 1010 по 1059
+	//fmt.Println(t2)
 	var systemStrings = parceBacsStrings(t2)
+	//fmt.Println(systemStrings)
 	MainUnits.bacstr = systemStrings
 
 	if MainUnits.gen.nummodules > 20 { // модули с 1060 по 1159 и далее если их более 20
@@ -121,10 +123,10 @@ func parceBacsStrings(data []byte) []bacsString {
 	//fmt.Println(data)
 	for i := 0; i < len(data); i += 10 {
 		var s bacsString
-		s.current = float64(int16(binary.BigEndian.Uint16(data[i : i+2])))
+		s.current = float64(int16(binary.BigEndian.Uint16(data[i:i+2]))) / 100
 		s.summvolt = float64(int16(binary.BigEndian.Uint16(data[i+2:i+4]))) / 10
 		s.avgvolt = float64(int16(binary.BigEndian.Uint16(data[i+4:i+6]))) / 1000
-		s.currac = float64(int16(binary.BigEndian.Uint16(data[i+8:i+10]))) / 100
+		s.currac = float64(int16(binary.BigEndian.Uint16(data[i+6:i+8]))) / 100
 		s.reserv = float64(int16(binary.BigEndian.Uint16(data[i+10 : i+12])))
 		ansver = append(ansver, s)
 	}
